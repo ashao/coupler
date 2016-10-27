@@ -479,6 +479,7 @@ program coupler_main
   logical :: use_hyper_thread = .false.
   integer :: ncores_per_node = 0
   logical :: debug_affinity = .false.
+  logical :: offline_tracer_mode = .false.
 
   namelist /coupler_nml/ current_date, calendar, force_date_from_namelist,         &
                          months, days, hours, minutes, seconds, dt_cpld, dt_atmos, &
@@ -649,7 +650,7 @@ newClock14 = mpp_clock_id( 'final flux_check_stocks' )
         call mpp_set_current_pelist(Atm%pelist)
         call mpp_clock_begin(newClock5)
         call mpp_clock_begin(newClock6)
-        if (do_ice .AND. Ice%pe) then
+        if (do_ice .AND. Ice%pe .and. .not. Ocean_state%offline_tracer_mode) then
            if(ice_npes .NE. atmos_npes) call mpp_set_current_pelist(Ice%pelist)
            call update_ice_model_slow_up( Ocean_ice_boundary, Ice )
         endif
@@ -676,7 +677,7 @@ newClock14 = mpp_clock_id( 'final flux_check_stocks' )
             call mpp_clock_end(newClocka)
           endif
 
-          if (do_flux) then
+          if (do_flux .and. .not. Ocean_state%offline_tracer_mode) then
             call mpp_clock_begin(newClockb)
             call sfc_boundary_layer( REAL(dt_atmos), Time_atmos, &
                  Atm, Land, Ice, Land_ice_atmos_boundary )
@@ -767,7 +768,7 @@ newClock14 = mpp_clock_id( 'final flux_check_stocks' )
 
             !      ---- ice model ----
             call mpp_clock_begin(newClockf)
-            if (do_ice .AND. Ice%pe) then
+            if (do_ice .AND. Ice%pe .AND. .not. Ocean_state%offline_tracer_mode) then
               if(ice_npes .NE. atmos_npes)call mpp_set_current_pelist(Ice%pelist)
               call update_ice_model_fast( Atmos_ice_boundary, Ice )
             endif
@@ -872,7 +873,7 @@ newClock14 = mpp_clock_id( 'final flux_check_stocks' )
 
         !   ------ slow-ice model ------
 
-        if (do_ice) then
+        if (do_ice .and. .not. Ocean_state%offline_tracer_mode) then
            call mpp_clock_begin(newClock10)
            if( Ice%pe ) then
               if(ice_npes .NE. atmos_npes) call mpp_set_current_pelist(Ice%pelist)
