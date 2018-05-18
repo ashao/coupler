@@ -361,8 +361,8 @@ program coupler_main
   use land_model_mod,          only: land_model_init, land_model_end
   use land_model_mod,          only: land_data_type, atmos_land_boundary_type
   use land_model_mod,          only: update_land_model_fast, update_land_model_slow
-  use land_model_mod,          only: atm_lnd_bnd_type_chksum
-  use land_model_mod,          only: land_data_type_chksum
+!  use land_model_mod,          only: atm_lnd_bnd_type_chksum
+!  use land_model_mod,          only: land_data_type_chksum
   use land_model_mod,          only: land_model_restart
 
   use ice_model_mod,           only: ice_model_init, share_ice_domains, ice_model_end, ice_model_restart
@@ -782,7 +782,7 @@ program coupler_main
 !$OMP&      SHARED(Time_atmos, Atm, Land, Ice, Land_ice_atmos_boundary, Atmos_land_boundary, Atmos_ice_boundary) &
 !$OMP&      SHARED(Ocean_ice_boundary) &
 !$OMP&      SHARED(do_debug, do_chksum, do_atmos, do_land, do_ice, do_concurrent_radiation, omp_sec, imb_sec) &
-!$OMP&      SHARED(newClockc, newClockd, newClocke, newClockf, newClockg, newClockh, newClocki, newClockj, newClockl) 
+!$OMP&      SHARED(newClockc, newClockd, newClocke, newClockf, newClockg, newClockh, newClocki, newClockj, newClockl)
 !$        call omp_set_num_threads(atmos_nthreads)
 !$        dsec=omp_get_wtime()
           if (do_concurrent_radiation) call mpp_clock_begin(newClocki)
@@ -1750,7 +1750,7 @@ contains
 !$      call omp_set_num_threads(ocean_nthreads)
         call mpp_set_current_pelist( Ocean%pelist )
 !$      base_cpu = get_cpu_affinity()
-!$OMP PARALLEL private(adder)    
+!$OMP PARALLEL private(adder)
 !$      if (use_hyper_thread) then
 !$        if (mod(omp_get_thread_num(),2) == 0) then
 !$          adder = omp_get_thread_num()/2
@@ -1765,7 +1765,7 @@ contains
 !$        write(6,*) " ocean  ", get_cpu_affinity(), adder, omp_get_thread_num()
 !$        call flush(6)
 !$      endif
-!$OMP END PARALLEL  
+!$OMP END PARALLEL
       else
         ocean_nthreads = atmos_nthreads
 !$      call omp_set_num_threads(ocean_nthreads)
@@ -2204,8 +2204,8 @@ contains
     endif
     if (Land%pe) then
       call mpp_set_current_pelist(Land%pelist)
-      call land_data_type_chksum(  id, timestep, Land)
-      call atm_lnd_bnd_type_chksum(id, timestep, Atmos_land_boundary)
+!      call land_data_type_chksum(  id, timestep, Land)
+!      call atm_lnd_bnd_type_chksum(id, timestep, Atmos_land_boundary)
     endif
 
     call mpp_set_current_pelist(Atm%pelist)
