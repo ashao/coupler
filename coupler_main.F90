@@ -450,6 +450,15 @@ program coupler_main
   type(time_type) :: Time_atmos, Time_ocean
   type(time_type) :: Time_flux_ice_to_ocean, Time_flux_ocean_to_ice
 
+
+  type :: saved_times_type
+    type (time_type) :: Time, Time_init, Time_end, Time_step_atmos, Time_step_cpld, Time_atmos, Time_ocean, &
+                        Time_flux_ice_to_ocean, Time_flux_ocean_to_ice
+    integer :: na
+  end type saved_times_type
+
+  type(saved_times_type) :: saved_times
+
   integer :: num_atmos_calls, na
   integer :: num_cpld_calls, nc
 
@@ -531,6 +540,8 @@ program coupler_main
   logical :: use_hyper_thread = .false.
   integer :: ncores_per_node = 0
   logical :: debug_affinity = .false.
+  logical :: save_ocean_state = .false.
+  logical :: restore_ocean_state = .false.
 
   namelist /coupler_nml/ current_date, calendar, force_date_from_namelist,         &
                          months, days, hours, minutes, seconds, dt_cpld, dt_atmos, &
@@ -799,7 +810,9 @@ program coupler_main
       !   ------ atmos/fast-land/fast-ice integration loop -------
 
       call mpp_clock_begin(newClock7)
-      do na = 1, num_atmos_calls
+
+      na = 1
+      do while (na <= num_atmos_calls)
         if (do_chksum) call atmos_ice_land_chksum('top_of_atmos_loop-', (nc-1)*num_atmos_calls+na, Atm, Land, Ice, &
                  Land_ice_atmos_boundary, Atmos_ice_boundary, Atmos_land_boundary)
 
@@ -838,7 +851,7 @@ program coupler_main
 !$OMP&      SHARED(Time_atmos, Atm, Land, Ice, Land_ice_atmos_boundary, Atmos_land_boundary, Atmos_ice_boundary) &
 !$OMP&      SHARED(Ocean_ice_boundary) &
 !$OMP&      SHARED(do_debug, do_chksum, do_atmos, do_land, do_ice, do_concurrent_radiation, omp_sec, imb_sec) &
-!$OMP&      SHARED(newClockc, newClockd, newClocke, newClockf, newClockg, newClockh, newClocki, newClockj, newClockl) 
+!$OMP&      SHARED(newClockc, newClockd, newClocke, newClockf, newClockg, newClockh, newClocki, newClockj, newClockl)
 !$        call omp_set_num_threads(atmos_nthreads)
 !$        dsec=omp_get_wtime()
           if (do_concurrent_radiation) call mpp_clock_begin(newClocki)
@@ -1002,7 +1015,7 @@ program coupler_main
 
     if(Atm%pe) then
      call mpp_clock_begin(newClock5) !Ice is still using ATM pelist and need to be included in ATM clock
-                                        !ATM clock is used for load-balancing the coupled models 
+                                        !ATM clock is used for load-balancing the coupled models
     endif
     if (do_ice .and. Ice%pe) then
 
@@ -1075,12 +1088,22 @@ program coupler_main
         call update_slow_ice_and_ocean(ice_ocean_driver_CS, Ice, Ocean_state, Ocean, &
                       Ice_ocean_boundary, Time_ocean, Time_step_cpld )
       else
-      if (do_chksum) call ocean_chksum('update_ocean_model-', nc, Ocean, Ice_ocean_boundary)
-      ! update_ocean_model since fluxes don't change here
+        if (do_chksum) call ocean_chksum('update_ocean_model-', nc, Ocean, Ice_ocean_boundary)
+        ! update_ocean_model since fluxes don't change here
 
-      if (do_ocean) &
-        call update_ocean_model( Ice_ocean_boundary, Ocean_state,  Ocean, &
-                                 Time_ocean, Time_step_cpld )
+        if (do_ocean) then
+          call update_ocean_model( Ice_ocean_boundary, Ocean_state,  Ocean, &
+                                   Time_ocean, Time_step_cpld, &
+                                   save_state = save_ocean_state, restore_state = restore_ocean_state)
+          if (save_ocean_state) then
+            call save_times( saved_times, Time, Time_init, Time_end, Time_step_atmos, Time_step_cpld,      &
+                             Time_atmos, Time_ocean, Time_flux_ice_to_ocean, Time_flux_ocean_to_ice, na )
+          endif
+          if (restore_ocean_state) then
+            call restore_times( saved_times, Time, Time_init, Time_end, Time_step_atmos, Time_step_cpld, Time_atmos, &
+                                Time_ocean, Time_flux_ice_to_ocean, Time_flux_ocean_to_ice, na )
+          endif
+        endif
       endif
 
       if (do_chksum) call ocean_chksum('update_ocean_model+', nc, Ocean, Ice_ocean_boundary)
@@ -1842,7 +1865,7 @@ contains
 !$      call omp_set_num_threads(ocean_nthreads)
         call mpp_set_current_pelist( Ocean%pelist )
 !$      base_cpu = get_cpu_affinity()
-!$OMP PARALLEL private(adder)    
+!$OMP PARALLEL private(adder)
 !$      if (use_hyper_thread) then
 !$        if (mod(omp_get_thread_num(),2) == 0) then
 !$          adder = omp_get_thread_num()/2
@@ -1857,7 +1880,7 @@ contains
 !$        write(6,*) " ocean  ", get_cpu_affinity(), adder, omp_get_thread_num()
 !$        call flush(6)
 !$      endif
-!$OMP END PARALLEL  
+!$OMP END PARALLEL
       else
         ocean_nthreads = atmos_nthreads
 !$      call omp_set_num_threads(ocean_nthreads)
@@ -2330,5 +2353,43 @@ contains
 
   end subroutine ocean_chksum
 
+  subroutine save_times( saved_times, Time, Time_init, Time_end, Time_step_atmos, Time_step_cpld, Time_atmos, &
+                         Time_ocean, Time_flux_ice_to_ocean, Time_flux_ocean_to_ice, na)
+    type(saved_times_type), intent(  out) :: saved_times
+    type(time_type),        intent(in)    :: Time, Time_init, Time_end, Time_step_atmos, Time_step_cpld, Time_atmos, &
+                                             Time_ocean, Time_flux_ice_to_ocean, Time_flux_ocean_to_ice
+    integer,                intent(in   ) :: na
 
+    saved_times%Time                   = Time
+    saved_times%Time_init              = Time_init
+    saved_times%Time_end               = Time_end
+    saved_times%Time_step_atmos        = Time_step_atmos
+    saved_times%Time_step_cpld         = Time_step_cpld
+    saved_times%Time_atmos             = Time_atmos
+    saved_times%Time_ocean             = Time_ocean
+    saved_times%Time_flux_ice_to_ocean = Time_flux_ice_to_ocean
+    saved_times%Time_flux_ocean_to_ice = Time_flux_ocean_to_ice
+    saved_times%na                     = na
+
+  end subroutine save_times
+
+  subroutine restore_times( saved_times, Time, Time_init, Time_end, Time_step_atmos, Time_step_cpld, Time_atmos, &
+                         Time_ocean, Time_flux_ice_to_ocean, Time_flux_ocean_to_ice, na)
+    type(saved_times_type), intent(in   ) :: saved_times
+    type(time_type),        intent(  out) :: Time, Time_init, Time_end, Time_step_atmos, Time_step_cpld, Time_atmos, &
+                                             Time_ocean, Time_flux_ice_to_ocean, Time_flux_ocean_to_ice
+    integer,                intent(  out) :: na
+
+    Time                   = saved_times%Time
+    Time_init              = saved_times%Time_init
+    Time_end               = saved_times%Time_end
+    Time_step_atmos        = saved_times%Time_step_atmos
+    Time_step_cpld         = saved_times%Time_step_cpld
+    Time_atmos             = saved_times%Time_atmos
+    Time_ocean             = saved_times%Time_ocean
+    Time_flux_ice_to_ocean = saved_times%Time_flux_ice_to_ocean
+    Time_flux_ocean_to_ice = saved_times%Time_flux_ocean_to_ice
+    na                     = saved_times%na
+
+  end subroutine restore_times
 end program coupler_main
